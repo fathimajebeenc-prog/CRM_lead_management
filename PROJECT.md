@@ -27,8 +27,8 @@ New, Contacted, Qualified, Proposal, Won, Lost
 Kanban board, activity timeline, follow-up reminders, dark mode
 
 ## Rules for the AI agent
-- Do ONE feature at a time and wait for my approval.
-- Plan first, then write code.
-- Explain what you did in simple words.
-- Show loading, empty and error states.
-- Do not install extra libraries without telling me why.
+- Do only what the prompt asks. Don't plan or ask for approval unless I say so.
+- Be concise: reply in 2 lines max.
+- Don't run the app, tests, or browser unless I ask.
+- Don't install extra libraries unless the prompt says so.
+- Show loading, empty and error states in the UI.
