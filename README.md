@@ -3,6 +3,10 @@
 A small CRM to capture leads, track them through a sales pipeline,
 search and filter them, and see a live dashboard.
 
+## Live demo
+- App: https://crm-lead-management-nine.vercel.app
+- API: https://fathimajebeen01.pythonanywhere.com/api/leads/
+
 ## Features
 - Add, edit and delete leads
 - Status pipeline (New, Contacted, Qualified, Proposal, Won, Lost);
