@@ -43,6 +43,17 @@ at http://localhost:5173), or run the two servers manually:
 - `GET/POST /api/leads/<id>/activities/`: timeline and notes
 - `GET /api/dashboard/`: statistics for the dashboard
 
+## Optional: PostgreSQL
+By default the app uses SQLite (no setup needed). To use PostgreSQL:
+1. Install PostgreSQL and create a database named `leadflow`.
+2. In the backend terminal:
+
+       set USE_POSTGRES=1
+       set DB_PASSWORD=your-postgres-password
+       python manage.py migrate
+       python manage.py seed_leads
+       python manage.py runserver
+
 ## Built with AI
 Built with the help of Google Antigravity (AI coding agent) and Claude
 for planning and debugging. 
