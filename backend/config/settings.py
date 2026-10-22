@@ -155,3 +155,13 @@ REST_FRAMEWORK = {
         'django_filters.rest_framework.DjangoFilterBackend',
     ],
 }
+
+# --- Deployment settings ---
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", ".pythonanywhere.com"]
+CORS_ALLOWED_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+CORS_ALLOWED_ORIGIN_REGEXES = [r"^https://.*\.vercel\.app$"]
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+if os.environ.get("DJANGO_PRODUCTION") == "1":
+    DEBUG = False
+    SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", SECRET_KEY)

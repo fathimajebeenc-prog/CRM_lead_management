@@ -145,10 +145,22 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-  });
+    // Retry GET requests a few times if the server is still starting up
+  const canRetry = !options.method || options.method === 'GET';
+  const maxAttempts = canRetry ? 6 : 1;
+  let response: Response | undefined;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      response = await fetch(url, { ...options, headers });
+      break;
+    } catch (err) {
+      if (attempt === maxAttempts) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+  }
+  if (!response) {
+    throw new Error('Failed to fetch');
+  }
 
   if (!response.ok) {
     let errorData: Record<string, unknown> | null = null;
