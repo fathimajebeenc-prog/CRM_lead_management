@@ -9,6 +9,16 @@ export type LeadSource =
   | 'Other'
   | '';
 
+export type ActivityType = 'note' | 'status_change';
+
+export interface Activity {
+  id: number;
+  lead: number;
+  type: ActivityType | string;
+  text: string;
+  created_at: string;
+}
+
 export interface Lead {
   id: number;
   name: string;
@@ -218,5 +228,34 @@ export const api = {
     fetchApi<void>(`/leads/${id}/`, {
       method: 'DELETE',
     }),
+  getActivities: (id: number | string): Promise<Activity[]> =>
+    fetchApi<Activity[]>(`/leads/${id}/activities/`),
+  createActivity: (id: number | string, text: string): Promise<Activity> =>
+    fetchApi<Activity>(`/leads/${id}/activities/`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
   getDashboard: (): Promise<DashboardData> => fetchApi<DashboardData>('/dashboard/'),
 };
+
+export function getTodayString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function isLeadOverdue(lead: Lead, todayStr: string = getTodayString()): boolean {
+  if (!lead.follow_up_date) return false;
+  if (lead.status === 'Won' || lead.status === 'Lost') return false;
+  const dateOnly = lead.follow_up_date.slice(0, 10);
+  return dateOnly < todayStr;
+}
+
+export function isLeadDueToday(lead: Lead, todayStr: string = getTodayString()): boolean {
+  if (!lead.follow_up_date) return false;
+  if (lead.status === 'Won' || lead.status === 'Lost') return false;
+  const dateOnly = lead.follow_up_date.slice(0, 10);
+  return dateOnly === todayStr;
+}

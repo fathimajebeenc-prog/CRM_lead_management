@@ -1,9 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Lead, LeadStatus } from '../lib/api';
-import { api, formatApiError, LEAD_STATUSES, LEAD_SOURCES } from '../lib/api';
+import {
+  api,
+  formatApiError,
+  LEAD_STATUSES,
+  LEAD_SOURCES,
+  isLeadOverdue,
+  isLeadDueToday,
+  getTodayString,
+} from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { LeadModal } from '../components/LeadModal';
 import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
+import { LeadDrawer } from '../components/LeadDrawer';
 
 export const LeadsPage: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -18,10 +27,14 @@ export const LeadsPage: React.FC = () => {
   const [createdAfter, setCreatedAfter] = useState<string>('');
   const [createdBefore, setCreatedBefore] = useState<string>('');
   const [ordering, setOrdering] = useState<string>('-created_at');
+  const [followUpsDueOnly, setFollowUpsDueOnly] = useState<boolean>(false);
 
   // Status update states
   const [updatingStatusId, setUpdatingStatusId] = useState<number | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
+
+  // Drawer state
+  const [selectedLeadForDrawer, setSelectedLeadForDrawer] = useState<Lead | null>(null);
 
   // Modal controls
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -67,6 +80,15 @@ export const LeadsPage: React.FC = () => {
     await fetchLeads();
   }, [fetchLeads]);
 
+  const todayStr = useMemo(() => getTodayString(), []);
+
+  const displayedLeads = useMemo(() => {
+    if (!followUpsDueOnly) return leads;
+    return leads.filter(
+      (lead) => isLeadOverdue(lead, todayStr) || isLeadDueToday(lead, todayStr)
+    );
+  }, [leads, followUpsDueOnly, todayStr]);
+
   const handleClearFilters = () => {
     setSearchInput('');
     setDebouncedSearch('');
@@ -75,6 +97,7 @@ export const LeadsPage: React.FC = () => {
     setCreatedAfter('');
     setCreatedBefore('');
     setOrdering('-created_at');
+    setFollowUpsDueOnly(false);
   };
 
   const handleStatusChange = async (leadId: number, newStatus: LeadStatus) => {
@@ -84,6 +107,9 @@ export const LeadsPage: React.FC = () => {
       const updatedLead = await api.updateLeadStatus(leadId, newStatus);
       setLeads((prevLeads) =>
         prevLeads.map((lead) => (lead.id === leadId ? updatedLead : lead))
+      );
+      setSelectedLeadForDrawer((prev) =>
+        prev && prev.id === leadId ? updatedLead : prev
       );
     } catch (err: unknown) {
       setStatusError(formatApiError(err));
@@ -138,7 +164,8 @@ export const LeadsPage: React.FC = () => {
       sourceFilter ||
       createdAfter ||
       createdBefore ||
-      ordering !== '-created_at'
+      ordering !== '-created_at' ||
+      followUpsDueOnly
   );
 
   return (
@@ -315,6 +342,20 @@ export const LeadsPage: React.FC = () => {
               />
             </div>
 
+            {/* Quick Filter: Follow-ups due */}
+            <button
+              type="button"
+              onClick={() => setFollowUpsDueOnly((prev) => !prev)}
+              aria-pressed={followUpsDueOnly}
+              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer border ${
+                followUpsDueOnly
+                  ? 'bg-amber-500 text-white border-amber-600 font-semibold shadow-xs'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              Follow-ups due
+            </button>
+
             {/* Clear Filters Button */}
             <button
               type="button"
@@ -327,7 +368,7 @@ export const LeadsPage: React.FC = () => {
 
           {/* Show "N leads" */}
           <div className="text-sm font-semibold text-slate-700">
-            {leads.length} leads
+            {displayedLeads.length} leads
           </div>
         </div>
       </div>
@@ -416,7 +457,7 @@ export const LeadsPage: React.FC = () => {
             Try Again
           </button>
         </div>
-      ) : leads.length === 0 ? (
+      ) : displayedLeads.length === 0 ? (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-12 text-center">
           <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-4">
             <svg
@@ -501,13 +542,19 @@ export const LeadsPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
-                {leads.map((lead) => (
+                {displayedLeads.map((lead) => (
                   <tr
                     key={lead.id}
                     className="hover:bg-slate-50/70 transition-colors group"
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-slate-900">{lead.name}</div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedLeadForDrawer(lead)}
+                        className="font-medium text-slate-900 hover:text-indigo-600 hover:underline text-left cursor-pointer transition-colors"
+                      >
+                        {lead.name}
+                      </button>
                       {lead.phone && (
                         <div className="text-xs text-slate-400 mt-0.5">{lead.phone}</div>
                       )}
@@ -547,7 +594,19 @@ export const LeadsPage: React.FC = () => {
                       {formatCurrency(lead.deal_value)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-slate-600">
-                      {formatDate(lead.follow_up_date)}
+                      <div className="flex items-center gap-2">
+                        <span>{formatDate(lead.follow_up_date)}</span>
+                        {isLeadOverdue(lead, todayStr) && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 border border-red-200">
+                            Overdue
+                          </span>
+                        )}
+                        {isLeadDueToday(lead, todayStr) && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                            Due today
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
                       <div className="inline-flex items-center gap-2">
@@ -574,13 +633,13 @@ export const LeadsPage: React.FC = () => {
           </div>
           <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 text-xs text-slate-500 flex justify-between items-center">
             <span>
-              Total leads: <strong className="text-slate-700">{leads.length}</strong>
+              Total leads: <strong className="text-slate-700">{displayedLeads.length}</strong>
             </span>
             <span>
               Total pipeline value:{' '}
               <strong className="text-slate-700">
                 {formatCurrency(
-                  leads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0)
+                  displayedLeads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0)
                 )}
               </strong>
             </span>
@@ -608,6 +667,18 @@ export const LeadsPage: React.FC = () => {
           setLeadToDelete(null);
         }}
         onSuccess={refreshLeads}
+      />
+            {/* Lead details drawer */}
+      <LeadDrawer
+        isOpen={selectedLeadForDrawer !== null}
+        lead={selectedLeadForDrawer}
+        onClose={() => setSelectedLeadForDrawer(null)}
+        onLeadUpdated={(updated) => {
+          setLeads((prev) =>
+            prev.map((l) => (l.id === updated.id ? updated : l))
+          );
+          setSelectedLeadForDrawer(updated);
+        }}
       />
     </div>
   );
