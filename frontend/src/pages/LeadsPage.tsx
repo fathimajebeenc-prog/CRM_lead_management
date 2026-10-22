@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { Lead } from '../lib/api';
-import { api, formatApiError } from '../lib/api';
+import type { Lead, LeadStatus } from '../lib/api';
+import { api, formatApiError, LEAD_STATUSES, LEAD_SOURCES } from '../lib/api';
 import { StatusBadge } from '../components/StatusBadge';
 import { LeadModal } from '../components/LeadModal';
 import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
@@ -10,6 +10,19 @@ export const LeadsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Filter and sort states
+  const [searchInput, setSearchInput] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [sourceFilter, setSourceFilter] = useState<string>('');
+  const [createdAfter, setCreatedAfter] = useState<string>('');
+  const [createdBefore, setCreatedBefore] = useState<string>('');
+  const [ordering, setOrdering] = useState<string>('-created_at');
+
+  // Status update states
+  const [updatingStatusId, setUpdatingStatusId] = useState<number | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+
   // Modal controls
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [leadToEdit, setLeadToEdit] = useState<Lead | null>(null);
@@ -18,40 +31,66 @@ export const LeadsPage: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState<boolean>(false);
   const [leadToDelete, setLeadToDelete] = useState<Lead | null>(null);
 
-  const refreshLeads = useCallback(async () => {
+  // Debounce search input by 300 ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  const fetchLeads = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await api.getLeads();
+      const data = await api.getLeads({
+        search: debouncedSearch,
+        status: statusFilter,
+        source: sourceFilter,
+        created_after: createdAfter,
+        created_before: createdBefore,
+        ordering,
+      });
       setLeads(data);
     } catch (err: unknown) {
       setError(formatApiError(err));
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [debouncedSearch, statusFilter, sourceFilter, createdAfter, createdBefore, ordering]);
 
   useEffect(() => {
-    let ignore = false;
-    const loadInitial = async () => {
-      try {
-        const data = await api.getLeads();
-        if (!ignore) {
-          setLeads(data);
-          setIsLoading(false);
-        }
-      } catch (err: unknown) {
-        if (!ignore) {
-          setError(formatApiError(err));
-          setIsLoading(false);
-        }
-      }
-    };
-    void loadInitial();
-    return () => {
-      ignore = true;
-    };
-  }, []);
+    void fetchLeads();
+  }, [fetchLeads]);
+
+  const refreshLeads = useCallback(async () => {
+    await fetchLeads();
+  }, [fetchLeads]);
+
+  const handleClearFilters = () => {
+    setSearchInput('');
+    setDebouncedSearch('');
+    setStatusFilter('');
+    setSourceFilter('');
+    setCreatedAfter('');
+    setCreatedBefore('');
+    setOrdering('-created_at');
+  };
+
+  const handleStatusChange = async (leadId: number, newStatus: LeadStatus) => {
+    setUpdatingStatusId(leadId);
+    setStatusError(null);
+    try {
+      const updatedLead = await api.updateLeadStatus(leadId, newStatus);
+      setLeads((prevLeads) =>
+        prevLeads.map((lead) => (lead.id === leadId ? updatedLead : lead))
+      );
+    } catch (err: unknown) {
+      setStatusError(formatApiError(err));
+    } finally {
+      setUpdatingStatusId(null);
+    }
+  };
 
   const handleOpenAdd = () => {
     setLeadToEdit(null);
@@ -92,6 +131,15 @@ export const LeadsPage: React.FC = () => {
       return dateStr;
     }
   };
+
+  const hasActiveFilters = Boolean(
+    searchInput ||
+      statusFilter ||
+      sourceFilter ||
+      createdAfter ||
+      createdBefore ||
+      ordering !== '-created_at'
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -142,6 +190,161 @@ export const LeadsPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Filter and Search Bar (Above Table) */}
+      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Search Box */}
+          <div className="relative">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                />
+              </svg>
+            </div>
+            <input
+              id="search"
+              name="search"
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search name, company, email..."
+              aria-label="Search"
+              className="w-full pl-9 pr-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-colors text-slate-800 placeholder-slate-400"
+            />
+          </div>
+
+          {/* Status Dropdown */}
+          <div>
+            <select
+              id="status"
+              name="status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              aria-label="Status"
+              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-colors cursor-pointer text-slate-700"
+            >
+              <option value="">All statuses</option>
+              {LEAD_STATUSES.map((st) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Source Dropdown */}
+          <div>
+            <select
+              id="source"
+              name="source"
+              value={sourceFilter}
+              onChange={(e) => setSourceFilter(e.target.value)}
+              aria-label="Source"
+              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-colors cursor-pointer text-slate-700"
+            >
+              <option value="">All sources</option>
+              {LEAD_SOURCES.map((src) => (
+                <option key={src} value={src}>
+                  {src}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Sort Dropdown */}
+          <div>
+            <select
+              id="ordering"
+              name="ordering"
+              value={ordering}
+              onChange={(e) => setOrdering(e.target.value)}
+              aria-label="Sort by"
+              className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-colors cursor-pointer text-slate-700"
+            >
+              <option value="-created_at">Newest</option>
+              <option value="name">Name</option>
+              <option value="-deal_value">Deal value high to low</option>
+              <option value="follow_up_date">Follow-up date</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Date Inputs, Clear Filters, and "N leads" Count */}
+        <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Created From */}
+            <div className="flex items-center gap-1.5">
+              <label
+                htmlFor="created_after"
+                className="text-xs font-medium text-slate-600 whitespace-nowrap"
+              >
+                Created from:
+              </label>
+              <input
+                id="created_after"
+                name="created_after"
+                type="date"
+                value={createdAfter}
+                onChange={(e) => setCreatedAfter(e.target.value)}
+                aria-label="Created from"
+                className="px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-colors cursor-pointer text-slate-700"
+              />
+            </div>
+
+            {/* Created To */}
+            <div className="flex items-center gap-1.5">
+              <label
+                htmlFor="created_before"
+                className="text-xs font-medium text-slate-600 whitespace-nowrap"
+              >
+                Created to:
+              </label>
+              <input
+                id="created_before"
+                name="created_before"
+                type="date"
+                value={createdBefore}
+                onChange={(e) => setCreatedBefore(e.target.value)}
+                aria-label="Created to"
+                className="px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition-colors cursor-pointer text-slate-700"
+              />
+            </div>
+
+            {/* Clear Filters Button */}
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              className="px-3 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+            >
+              Clear filters
+            </button>
+          </div>
+
+          {/* Show "N leads" */}
+          <div className="text-sm font-semibold text-slate-700">
+            {leads.length} leads
+          </div>
+        </div>
+      </div>
+
+      {/* Status Update Error Banner */}
+      {statusError && (
+        <div className="mb-4 p-3 bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-lg flex items-center justify-between">
+          <span>Failed to update status: {statusError}</span>
+          <button
+            type="button"
+            onClick={() => setStatusError(null)}
+            className="text-rose-500 hover:text-rose-700 text-lg leading-none font-bold ml-2 cursor-pointer"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Main Content Areas */}
       {isLoading ? (
@@ -230,11 +433,24 @@ export const LeadsPage: React.FC = () => {
               />
             </svg>
           </div>
-          <h3 className="text-lg font-semibold text-slate-900">No leads yet</h3>
+          <h3 className="text-lg font-semibold text-slate-900">
+            {hasActiveFilters ? 'No matching leads' : 'No leads yet'}
+          </h3>
           <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
-            Get started by adding your first lead to track stages, values, and follow-ups.
+            {hasActiveFilters
+              ? 'No leads matched your current filters. Try adjusting your criteria or clearing filters.'
+              : 'Get started by adding your first lead to track stages, values, and follow-ups.'}
           </p>
-          <div className="mt-6">
+          <div className="mt-6 flex items-center justify-center gap-3">
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-100 rounded-lg hover:bg-slate-200 transition-colors cursor-pointer"
+              >
+                Clear filters
+              </button>
+            )}
             <button
               type="button"
               onClick={handleOpenAdd}
@@ -321,7 +537,11 @@ export const LeadsPage: React.FC = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge status={lead.status} />
+                      <StatusBadge
+                        status={lead.status}
+                        onChange={(newStatus) => handleStatusChange(lead.id, newStatus)}
+                        disabled={updatingStatusId === lead.id}
+                      />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right font-medium text-slate-900">
                       {formatCurrency(lead.deal_value)}

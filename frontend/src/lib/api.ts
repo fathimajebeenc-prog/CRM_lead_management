@@ -36,6 +36,42 @@ export interface LeadPayload {
   follow_up_date?: string | null;
 }
 
+export interface LeadFilterParams {
+  search?: string;
+  status?: string;
+  source?: string;
+  created_after?: string;
+  created_before?: string;
+  ordering?: string;
+}
+
+export interface DashboardStatusCount {
+  status: LeadStatus | string;
+  count: number;
+}
+
+export interface DashboardSourceCount {
+  source: LeadSource | string;
+  count: number;
+}
+
+export interface DashboardWeeklyCount {
+  week: string;
+  count: number;
+}
+
+export interface DashboardData {
+  total_leads: number;
+  won_leads: number;
+  conversion_rate: number;
+  pipeline_value: number;
+  won_value: number;
+  overdue_followups: number;
+  by_status: DashboardStatusCount[];
+  by_source: DashboardSourceCount[];
+  per_week: DashboardWeeklyCount[];
+}
+
 export const LEAD_STATUSES: LeadStatus[] = [
   'New',
   'Contacted',
@@ -136,7 +172,32 @@ async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise
 }
 
 export const api = {
-  getLeads: (): Promise<Lead[]> => fetchApi<Lead[]>('/leads/'),
+  getLeads: (params?: LeadFilterParams): Promise<Lead[]> => {
+    if (!params) {
+      return fetchApi<Lead[]>('/leads/');
+    }
+    const query = new URLSearchParams();
+    if (params.search && params.search.trim()) {
+      query.set('search', params.search.trim());
+    }
+    if (params.status) {
+      query.set('status', params.status);
+    }
+    if (params.source) {
+      query.set('source', params.source);
+    }
+    if (params.created_after) {
+      query.set('created_after', params.created_after);
+    }
+    if (params.created_before) {
+      query.set('created_before', params.created_before);
+    }
+    if (params.ordering) {
+      query.set('ordering', params.ordering);
+    }
+    const queryString = query.toString();
+    return fetchApi<Lead[]>(`/leads/${queryString ? `?${queryString}` : ''}`);
+  },
   getLead: (id: number | string): Promise<Lead> => fetchApi<Lead>(`/leads/${id}/`),
   createLead: (data: LeadPayload): Promise<Lead> =>
     fetchApi<Lead>('/leads/', {
@@ -148,8 +209,14 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+  updateLeadStatus: (id: number | string, status: LeadStatus | string): Promise<Lead> =>
+    fetchApi<Lead>(`/leads/${id}/status/`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    }),
   deleteLead: (id: number | string): Promise<void> =>
     fetchApi<void>(`/leads/${id}/`, {
       method: 'DELETE',
     }),
+  getDashboard: (): Promise<DashboardData> => fetchApi<DashboardData>('/dashboard/'),
 };
